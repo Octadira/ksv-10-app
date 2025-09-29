@@ -1,0 +1,6 @@
+chainlit
+meilisearch
+python-dotenv
+langdetect
+litellm
+google-generativeai
