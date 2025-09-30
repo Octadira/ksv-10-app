@@ -68,11 +68,8 @@ if "CHAINLIT_AUTH_SECRET" in os.environ:
         if not verify_password(password, user['password_hash']):
             return None # Invalid password
 
-        # The line below was causing a `ChainlitContextException`. 
-        # Temporarily commented out to allow login.
-        # cl.user_session.set("user", user)
-        
-        return cl.User(username=user['username'], role=user['role'])
+        # In new versions of Chainlit, 'identifier' is a required field for cl.User.
+        return cl.User(identifier=user['username'], role=user['role'])
 
 
 @cl.on_chat_start
