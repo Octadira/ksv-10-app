@@ -51,6 +51,20 @@ def get_user(username):
         return dict(user)
     return None
 
+def change_password_in_db(username, new_password_hash):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_password_hash, username))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error on password change: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 # --- Chainlit Authentication ---
 if "CHAINLIT_AUTH_SECRET" in os.environ:
     @cl.password_auth_callback
@@ -62,22 +76,57 @@ if "CHAINLIT_AUTH_SECRET" in os.environ:
         if not verify_password(password, user['password_hash']):
             return None # Invalid password
         
-        # In new versions of Chainlit, 'identifier' is a required field for cl.User.
         return cl.User(identifier=user['username'], role=user['role'])
 
 
 @cl.on_chat_start
 async def on_chat_start():
+    # Save the full user object to the session for later use
+    try:
+        user_identifier = cl.context.session.user.identifier
+        user_data = get_user(user_identifier)
+        if user_data:
+            cl.user_session.set("user", user_data)
+    except Exception as e:
+        print(f"Error setting user session data: {e}")
+
     await cl.Message(content="Bun venit la KSV-10! Introduceți un termen pentru a începe.").send()
 
 @cl.on_message
 async def main(message: cl.Message):
     msg_content = message.content.strip()
     
+    # --- Command Handling (Re-enabled) ---
     if msg_content.startswith("/schimba_parola"):
-        await cl.Message(content="Funcționalitatea de schimbare a parolei este temporar dezactivată.").send()
+        parts = msg_content.split()
+        if len(parts) != 3:
+            await cl.Message(content="Comandă invalidă. Folosiți: /schimba_parola <parola_veche> <parola_noua>").send()
+            return
+
+        _, old_password, new_password = parts
+        user_data = cl.user_session.get("user")
+
+        if not user_data:
+            await cl.Message(content="Eroare: Nu am putut identifica utilizatorul curent. Vă rugăm reîncărcați pagina.").send()
+            return
+
+        # Verify old password
+        if not verify_password(old_password, user_data['password_hash']):
+            await cl.Message(content="Parola veche este incorectă.").send()
+            return
+
+        # Change password
+        new_password_hash = get_password_hash(new_password)
+        if change_password_in_db(user_data['username'], new_password_hash):
+            # Update the user data in the session with the new hash
+            user_data['password_hash'] = new_password_hash
+            cl.user_session.set("user", user_data)
+            await cl.Message(content="Parola a fost schimbată cu succes!").send()
+        else:
+            await cl.Message(content="A apărut o eroare la schimbarea parolei. Vă rugăm încercați mai târziu.").send()
         return
 
+    # --- Dictionary Logic (if not a command) ---
     term = msg_content
     if not term:
         await cl.Message(content="Vă rog să introduceți un termen.").send()
@@ -103,12 +152,7 @@ async def main(message: cl.Message):
         
         final_response = "**Din Baza de Cunoștințe:**\n\n" + results_str
         
-        # Add the original content to the payload to preserve it later
-        ask_llm_action = cl.Action(
-            name="ask_llm", 
-            payload={"term": term, "original_content": final_response},
-            label="Caută cu AI (LLM)"
-        )
+        ask_llm_action = cl.Action(name="ask_llm", payload={"term": term}, label="Caută cu AI (LLM)")
         await cl.Message(content=final_response, actions=[ask_llm_action]).send()
     else:
         llm_button_message = f"Termenul **'{term}'** nu a fost găsit. Doriți să încerc cu AI?"
@@ -117,15 +161,8 @@ async def main(message: cl.Message):
 
 @cl.action_callback("ask_llm")
 async def ask_llm(action: cl.Action):
-    # Preserve the original Meilisearch results by restoring the content
-    original_content = action.payload.get("original_content")
-    if original_content:
-        # Create a proxy for the original message to remove the button
-        original_msg = cl.Message(id=action.forId, content=original_content)
-        original_msg.actions = [] # Remove actions
-        await original_msg.update()
-
     term = action.payload.get("term")
+    
     # Send a "thinking" message
     await cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠").send()
 
@@ -141,7 +178,6 @@ async def ask_llm(action: cl.Action):
         llm_response = response.choices[0].message.content
         final_content = f"**Rezultat de la AI:**\n\n{llm_response}"
         
-        # Send the final answer in a NEW message to ensure all UI elements are present
         await cl.Message(content=final_content).send()
 
     except Exception as e:
