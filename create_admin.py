@@ -6,7 +6,7 @@ import os
 DB_FILE = "users.db"
 ADMIN_USERNAME = "admin"
 # WARNING: This is a default password. Change it in a secure way.
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+ADMIN_PASSWORD = "admin"
 
 # --- Hashing setup ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
