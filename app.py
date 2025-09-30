@@ -78,7 +78,7 @@ async def on_chat_start():
 
 @cl.on_message
 async def main(message: cl.Message):
-    term = message.content.strip()
+    msg_content = message.content.strip()
     
     # --- Command Handling ---
     if msg_content.startswith("/schimba_parola"):
@@ -88,6 +88,7 @@ async def main(message: cl.Message):
         return
 
     # --- Dictionary Logic (if not a command) ---
+    term = msg_content
     if not term:
         await cl.Message(content="Vă rog să introduceți un termen.").send()
         return
