@@ -1,0 +1,4 @@
+[UI]
+# Specifies the custom JavaScript file to be loaded.
+# This script handles the PWA setup (manifest and service worker).
+custom_js = "/public/pwa_loader.js"
