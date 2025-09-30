@@ -3,4 +3,5 @@ meilisearch
 python-dotenv
 langdetect
 litellm
+passlib[bcrypt]
 google-generativeai

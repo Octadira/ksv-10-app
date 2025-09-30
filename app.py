@@ -1,169 +1,135 @@
-import os
 import chainlit as cl
-import meilisearch
+import os
 from dotenv import load_dotenv
-from langdetect import detect, LangDetectException
+import meilisearch
+from langdetect import detect
 from litellm import completion
-import asyncio
+import sqlite3
+from passlib.context import CryptContext
 
-# Load environment variables from .env file
+# --- Load Environment Variables ---
 load_dotenv()
 
-# --- Configuration ---
-MEILI_HOST = os.getenv("MEILI_HOST")
+# --- Database and Auth Setup ---
+DB_FILE = "users.db"
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# --- Meilisearch Connection ---
+MEILI_URL = os.getenv("MEILI_URL")
 MEILI_API_KEY = os.getenv("MEILI_API_KEY")
-MEILI_INDEX_NAME = os.getenv("MEILI_INDEX_NAME")
-LLM_MODEL = os.getenv("LLM_MODEL")
+MEILI_INDEX_NAME = os.getenv("MEILI_INDEX_NAME", "documents")
+meili_client = meilisearch.Client(MEILI_URL, MEILI_API_KEY)
+meili_index = meili_client.index(MEILI_INDEX_NAME)
 
-# --- Initialize Clients ---
-try:
-    meili_client = meilisearch.Client(MEILI_HOST, MEILI_API_KEY)
-    meili_index = meili_client.index(MEILI_INDEX_NAME)
-    # Check connection by fetching index stats
-    meili_index.get_stats()
-    MEILI_AVAILABLE = True
-except Exception as e:
-    print(f"Eroare la conectarea cu Meilisearch: {e}")
-    meili_client = None
-    MEILI_AVAILABLE = False
+# --- LiteLLM (Gemini) Setup ---
+os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-pro")
 
-# --- Authentication Callback ---
-@cl.password_auth_callback
-def auth_callback(username: str, password: str):
-    # Hardcoded credentials for demonstration
-    # In a real-world scenario, use a secure method (e.g., database with hashed passwords)
-    if username == "admin" and password == "admin":
-        return cl.User(identifier="admin", metadata={"role": "admin"})
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_user(username):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ?", (username,))
+    user = c.fetchone()
+    conn.close()
+    if user:
+        return dict(user)
     return None
 
-# System prompt for the LLM
-LLM_SYSTEM_PROMPT = """
-You are a professional translator and linguist. Your task is to translate the given term.
-1.  First, detect the source language of the term (between Romanian and English).
-2.  Translate it into the target language (if the source is Romanian, translate to English; if the source is English, translate to Romanian).
-3.  Provide multiple translation variants if they exist, especially if the term has different meanings in different contexts.
-4.  For each variant, provide a short, clear description or an example sentence to illustrate its usage.
-5.  Format the output clearly using Markdown. Use bullet points for each variant.
-"""
+# Check for the auth secret to enable login
+if "CHAINLIT_AUTH_SECRET" in os.environ:
+    @cl.password_auth_callback
+    def auth_callback(username, password):
+        user = get_user(username)
+        if not user:
+            return None  # User not found
+        
+        if not verify_password(password, user['password_hash']):
+            return None # Invalid password
 
-# --- Helper Functions ---
-def detect_language(text: str) -> str:
-    """Detects if the text is Romanian ('ro') or English ('en'). Defaults to 'en'."""
-    try:
-        lang = detect(text)
-        if lang == 'ro':
-            return 'ro'
-        return 'en' # Default to English for other detected languages
-    except LangDetectException:
-        return 'en' # Default to English if detection fails
+        # Return a cl.User object
+        return cl.User(username=user['username'], role=user['role'])
 
 
-def search_in_meilisearch(term: str, lang: str) -> list[dict]:
-    """Searches for a term and returns all matching documents."""
-    if not MEILI_AVAILABLE:
-        return [] # Return an empty list if not available
-    
-    search_field = 'lang_a' if lang == 'en' else 'lang_b'
-
-    try:
-        search_params = {
-            'attributesToSearchOn': [search_field],
-            'limit': 50 # Get up to 50 results
-        }
-        # Use the term as the main search query 'q'
-        results = meili_index.search(term, search_params)
-        return results.get('hits', []) # Return the list of hits, or empty list
-    except Exception as e:
-        print(f"Error searching Meilisearch: {e}")
-        return [] # Return an empty list on error
-
-async def translate_with_llm(term: str):
-    """Generates a translation using the LLM."""
-    messages = [
-        {"role": "system", "content": LLM_SYSTEM_PROMPT},
-        {"role": "user", "content": f"Please translate the following term: \"{term}\""}
-    ]
-    try:
-        # Using async for non-blocking API call
-        response = await asyncio.to_thread(
-            completion,
-            model=LLM_MODEL,
-            messages=messages,
-            # litellm will automatically use the GEMINI_API_KEY environment variable
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Am întâmpinat o eroare la contactarea LLM: {e}"
-
-# --- Chainlit Logic ---
 @cl.on_chat_start
-async def start():
-    """Function called when a new chat session starts."""
-    await cl.Message(
-        content="**Bun venit la KSV-10!**\n\nIntroduceți un termen în română sau engleză pentru a căuta traducerea."
-    ).send()
-    if not MEILI_AVAILABLE:
-        await cl.Message(
-            content="**Atenție:** Conexiunea la baza de date Meilisearch nu a putut fi stabilită. Se va folosi doar LLM-ul."
-        ).send()
+async def on_chat_start():
+    # Display the content of chainlit.md
+    try:
+        with open("chainlit.md", "r", encoding="utf-8") as f:
+            await cl.Message(content=f.read()).send()
+    except FileNotFoundError:
+        await cl.Message(content="Bun venit la KSV-10!").send()
 
 @cl.on_message
 async def main(message: cl.Message):
-    """Function called for every new message from the user."""
     term = message.content.strip()
-    lang = detect_language(term)
     
-    meili_results = search_in_meilisearch(term, lang)
+    if not term:
+        await cl.Message(content="Vă rog să introduceți un termen.").send()
+        return
 
-    if meili_results:
-        result_content = "### Din Baza de Cunoștințe:\n---\n"
+    try:
+        lang = detect(term)
+    except:
+        lang = "en" # Default to english if detection fails
+
+    # Use the correct field names from the updated schema
+    search_lang_field = "lang_a" if lang == "en" else "lang_b"
+    
+    # 1. Search in Meilisearch using the search method for better matching
+    search_results = meili_index.search(term, {
+        'limit': 5, # Return a few results
+        'attributesToSearchOn': [search_lang_field]
+    })
+
+    if search_results['hits']:
+        response = "**Rezultate din dicționar:**\n\n"
+        for i, hit in enumerate(search_results['hits']):
+            ro_term = hit.get('lang_b', 'N/A')
+            en_term = hit.get('lang_a', 'N/A')
+            explanation = hit.get('explanation', 'Fără explicație.')
+            response += f"**{i+1}. {en_term}** (EN) - **{ro_term}** (RO)\n*Explicație:* {explanation}\n---\n"
         
-        for hit in meili_results:
-            en_term = hit.get('lang_a', '')
-            ro_term = hit.get('lang_b', '')
-            source = hit.get('source', '')
-            
-            rezultat_line = f"{en_term} / {ro_term}"
-
-            result_content += f"**Rezultat:** {rezultat_line}\n"
-            
-            if source:
-                result_content += f"**Sursa:** {source}\n"
-            
-            result_content += "\n" # Add a newline for spacing
-
-        # Define the action button with the 'payload' as a dictionary
-        actions = [
-            cl.Action(name="ask_llm", payload={"term": term}, label="✨ Caută și cu LLM")
-        ]
-
-        # Send one message with both the results and the action button
-        await cl.Message(
-            content=result_content.strip(),
-            actions=actions
-        ).send()
+        await cl.Message(content=response).send()
 
     else:
-        msg = cl.Message(content="")
-        await msg.send()
-        await msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
-        llm_response = await translate_with_llm(term)
-        msg.content += llm_response
-        await msg.update()
+        # 2. Fallback to LLM
+        actions = [
+            cl.Action(
+                name="ask_llm", 
+                payload={"term": term}, 
+                label="Întreabă AI-ul"
+            )
+        ]
+        await cl.Message(content=f"Termenul **'{term}'** nu a fost găsit în dicționar.", actions=actions).send()
 
 @cl.action_callback("ask_llm")
 async def on_action(action: cl.Action):
-    """Function called when the user clicks the 'ask_llm' action button."""
-    # Read the term from the 'payload' dictionary
     term = action.payload.get("term")
-    if not term:
-        await cl.Message(content="Eroare: Nu am putut prelua termenul de căutat.").send()
-        return
+    await action.remove()
+
+    msg = cl.Message(content="Apelez la AI... 🧠")
+    await msg.send()
+
+    system_prompt = ("You are a helpful bilingual dictionary assistant. Your goal is to provide a concise and accurate translation and a brief explanation for the given term. "
+                     "The user will provide a term in either Romanian or English. You must respond with the translation in the other language and a short explanation. "
+                     "Format the response clearly in Markdown, starting with the translation and then the explanation.")
     
-    await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
-    
-    llm_response = await translate_with_llm(term)
-    
-    final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
-    
-    await cl.Message(content=final_response).send()
+    try:
+        response = completion(
+            model=LLM_MODEL,
+            messages=[
+                {"content": system_prompt, "role": "system"},
+                {"content": f"Translate and explain the term: '{term}'", "role": "user"}
+            ]
+        )
+        llm_response = response.choices[0].message.content
+        msg.content = f"**Rezultat de la AI pentru '{term}':**\n\n{llm_response}"
+        await msg.update()
+    except Exception as e:
+        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
+        await msg.update()
