@@ -52,9 +52,13 @@ def search_in_meilisearch(term: str, lang: str) -> dict | None:
     """Searches for a term in the specified language field in Meilisearch."""
     if not MEILI_AVAILABLE:
         return None
+    
+    # Map detected language to the actual field name in Meilisearch
+    search_field = 'lang_a' if lang == 'en' else 'lang_b'
+
     try:
         search_params = {
-            'filter': [f'{lang} = "{term.lower()}"'],
+            'filter': [f'{search_field} = "{term.lower()}"'], # Use the correct field name
             'limit': 1
         }
         results = meili_index.search('', search_params)
@@ -111,9 +115,10 @@ async def main(message: cl.Message):
     
     if meili_result:
         # Found in Meilisearch
-        ro_term = meili_result.get('ro', 'N/A')
-        en_term = meili_result.get('en', 'N/A')
-        details = meili_result.get('details', 'Nicio explicație suplimentară.')
+        # Use the correct field names: lang_b for Romanian, lang_a for English
+        ro_term = meili_result.get('lang_b', 'N/A')
+        en_term = meili_result.get('lang_a', 'N/A')
+        details = meili_result.get('explanation', 'Nicio explicație suplimentară.')
         
         final_content = f"""
 ### Rezultat găsit în Meilisearch
