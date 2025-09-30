@@ -144,7 +144,7 @@ async def query_llm(term: str, msg_to_update: cl.Message, is_regenerate: bool = 
 async def ask_llm(action: cl.Action):
     term = action.payload.get("term")
     # Remove the "Cauta cu AI" button from the original message
-    original_message = cl.Message(content="", id=action.for_id, author=action.author)
+    original_message = cl.Message(content="", id=action.forId, author=action.author)
     original_message.actions = []
     await original_message.update()
 
