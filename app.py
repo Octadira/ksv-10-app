@@ -102,10 +102,6 @@ async def main(message: cl.Message):
     """Function called for every new message from the user."""
     term = message.content.strip()
     
-    # Send a thinking indicator
-    thinking_msg = cl.Message(content="")
-    await thinking_msg.send()
-
     lang = detect_language(term)
     
     # Step 1: Search in Meilisearch
@@ -113,7 +109,7 @@ async def main(message: cl.Message):
     
     if meili_results:
         # Found results in Meilisearch
-        final_content = "### Din Baza de Cunoștințe:\n---\n"
+        result_content = "### Din Baza de Cunoștințe:\n---\n"
         
         for hit in meili_results:
             en_term = hit.get('lang_a', '')
@@ -122,29 +118,32 @@ async def main(message: cl.Message):
             
             rezultat_line = f"{en_term} / {ro_term}"
 
-            final_content += f"**Rezultat:** {rezultat_line}\n"
+            result_content += f"**Rezultat:** {rezultat_line}\n"
             
             if source:
-                final_content += f"**Sursa:** {source}\n"
+                result_content += f"**Sursa:** {source}\n"
             
-            final_content += "\n" # Add a newline for spacing
+            result_content += "\n" # Add a newline for spacing
 
-        await cl.Message(content=final_content.strip()).send()
-
-        # Ask the user if they want to search with LLM as well
+        # Define the action button
         actions = [
             cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
         ]
-        await cl.Message(content="Doriți o alternativă de la modelul lingvistic?", actions=actions).send()
+
+        # Send one message with both the results and the action button
+        await cl.Message(
+            content=result_content.strip(),
+            actions=actions
+        ).send()
 
     else:
         # Step 2: Fallback to LLM
-        await thinking_msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
+        msg = cl.Message(content="")
+        await msg.send()
+        await msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
         llm_response = await translate_with_llm(term)
-        await cl.Message(content=llm_response).send()
-
-    # The initial thinking message is not needed anymore
-    await thinking_msg.remove()
+        msg.content += llm_response
+        await msg.update()
 
 @cl.action_callback("ask_llm")
 async def on_action(action: cl.Action):
