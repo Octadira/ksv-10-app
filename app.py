@@ -81,15 +81,6 @@ if "CHAINLIT_AUTH_SECRET" in os.environ:
 
 @cl.on_chat_start
 async def on_chat_start():
-    # Save the full user object to the session for later use
-    try:
-        user_identifier = cl.context.session.user.identifier
-        user_data = get_user(user_identifier)
-        if user_data:
-            cl.user_session.set("user", user_data)
-    except Exception as e:
-        print(f"Error setting user session data: {e}")
-
     await cl.Message(content="Bun venit la KSV-10! Introduceți un termen pentru a începe.").send()
 
 @cl.on_message
@@ -104,23 +95,28 @@ async def main(message: cl.Message):
             return
 
         _, old_password, new_password = parts
-        user_data = cl.user_session.get("user")
-
-        if not user_data:
-            await cl.Message(content="Eroare: Nu am putut identifica utilizatorul curent. Vă rugăm reîncărcați pagina.").send()
+        
+        try:
+            # Get the current user's identifier from the context
+            user_identifier = cl.context.session.user.identifier
+            # Fetch fresh user data directly from the database to be safe
+            user_db_data = get_user(user_identifier)
+        except Exception as e:
+            await cl.Message(content=f"Eroare: Nu am putut identifica utilizatorul curent: {e}").send()
             return
 
-        # Verify old password
-        if not verify_password(old_password, user_data['password_hash']):
+        if not user_db_data:
+            await cl.Message(content="Eroare: Utilizatorul nu a fost găsit în baza de date.").send()
+            return
+
+        # Verify old password using the data from the DB
+        if not verify_password(old_password, user_db_data['password_hash']):
             await cl.Message(content="Parola veche este incorectă.").send()
             return
 
         # Change password
         new_password_hash = get_password_hash(new_password)
-        if change_password_in_db(user_data['username'], new_password_hash):
-            # Update the user data in the session with the new hash
-            user_data['password_hash'] = new_password_hash
-            cl.user_session.set("user", user_data)
+        if change_password_in_db(user_db_data['username'], new_password_hash):
             await cl.Message(content="Parola a fost schimbată cu succes!").send()
         else:
             await cl.Message(content="A apărut o eroare la schimbarea parolei. Vă rugăm încercați mai târziu.").send()
