@@ -27,6 +27,15 @@ except Exception as e:
     meili_client = None
     MEILI_AVAILABLE = False
 
+# --- Authentication Callback ---
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    # Hardcoded credentials for demonstration
+    # In a real-world scenario, use a secure method (e.g., database with hashed passwords)
+    if username == "admin" and password == "admin":
+        return cl.User(identifier="admin", metadata={"role": "admin"})
+    return None
+
 # System prompt for the LLM
 LLM_SYSTEM_PROMPT = """
 You are a professional translator and linguist. Your task is to translate the given term.
@@ -47,6 +56,7 @@ def detect_language(text: str) -> str:
         return 'en' # Default to English for other detected languages
     except LangDetectException:
         return 'en' # Default to English if detection fails
+
 
 def search_in_meilisearch(term: str, lang: str) -> list[dict]:
     """Searches for a term and returns all matching documents."""
