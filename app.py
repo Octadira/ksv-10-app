@@ -122,9 +122,9 @@ async def main(message: cl.Message):
             
             result_content += "\n" # Add a newline for spacing
 
-        # Define the action button with the 'payload' parameter
+        # Define the action button with the 'payload' as a dictionary
         actions = [
-            cl.Action(name="ask_llm", payload=term, label="✨ Caută și cu LLM")
+            cl.Action(name="ask_llm", payload={"term": term}, label="✨ Caută și cu LLM")
         ]
 
         # Send one message with both the results and the action button
@@ -144,8 +144,11 @@ async def main(message: cl.Message):
 @cl.action_callback("ask_llm")
 async def on_action(action: cl.Action):
     """Function called when the user clicks the 'ask_llm' action button."""
-    # Read the term from the 'payload' attribute
-    term = action.payload 
+    # Read the term from the 'payload' dictionary
+    term = action.payload.get("term")
+    if not term:
+        await cl.Message(content="Eroare: Nu am putut prelua termenul de căutat.").send()
+        return
     
     await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
     
