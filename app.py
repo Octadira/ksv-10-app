@@ -25,6 +25,9 @@ meili_index = meili_client.index(MEILI_INDEX_NAME)
 os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-pro")
 
+# --- Password & User Helper Functions ---
+def get_password_hash(password):
+    return pwd_context.hash(password)
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -40,7 +43,21 @@ def get_user(username):
         return dict(user)
     return None
 
-# Check for the auth secret to enable login
+def change_password_in_db(username, new_password_hash):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_password_hash, username))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error on password change: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# --- Chainlit Authentication ---
 if "CHAINLIT_AUTH_SECRET" in os.environ:
     @cl.password_auth_callback
     def auth_callback(username, password):
@@ -51,13 +68,13 @@ if "CHAINLIT_AUTH_SECRET" in os.environ:
         if not verify_password(password, user['password_hash']):
             return None # Invalid password
 
-        # Return a cl.User object
+        # Store user object in session
+        cl.user_session.set("user", user)
         return cl.User(username=user['username'], role=user['role'])
 
 
 @cl.on_chat_start
 async def on_chat_start():
-    # Display the content of chainlit.md
     try:
         with open("chainlit.md", "r", encoding="utf-8") as f:
             await cl.Message(content=f.read()).send()
@@ -66,8 +83,37 @@ async def on_chat_start():
 
 @cl.on_message
 async def main(message: cl.Message):
-    term = message.content.strip()
+    msg_content = message.content.strip()
     
+    # --- Command Handling ---
+    if msg_content.startswith("/schimba_parola"):
+        parts = msg_content.split()
+        if len(parts) != 3:
+            await cl.Message(content="Comandă invalidă. Folosiți: /schimba_parola <parola_veche> <parola_noua>").send()
+            return
+
+        _, old_password, new_password = parts
+        user_data = cl.user_session.get("user")
+
+        if not user_data:
+            await cl.Message(content="Eroare: Nu am putut identifica utilizatorul curent.").send()
+            return
+
+        # Verify old password
+        if not verify_password(old_password, user_data['password_hash']):
+            await cl.Message(content="Parola veche este incorectă.").send()
+            return
+
+        # Change password
+        new_password_hash = get_password_hash(new_password)
+        if change_password_in_db(user_data['username'], new_password_hash):
+            await cl.Message(content="Parola a fost schimbată cu succes!").send()
+        else:
+            await cl.Message(content="A apărut o eroare la schimbarea parolei. Vă rugăm încercați mai târziu.").send()
+        return
+
+    # --- Dictionary Logic (if not a command) ---
+    term = msg_content
     if not term:
         await cl.Message(content="Vă rog să introduceți un termen.").send()
         return
@@ -77,12 +123,10 @@ async def main(message: cl.Message):
     except:
         lang = "en" # Default to english if detection fails
 
-    # Use the correct field names from the updated schema
     search_lang_field = "lang_a" if lang == "en" else "lang_b"
     
-    # 1. Search in Meilisearch using the search method for better matching
     search_results = meili_index.search(term, {
-        'limit': 5, # Return a few results
+        'limit': 5,
         'attributesToSearchOn': [search_lang_field]
     })
 
@@ -97,7 +141,6 @@ async def main(message: cl.Message):
         await cl.Message(content=response).send()
 
     else:
-        # 2. Fallback to LLM
         actions = [
             cl.Action(
                 name="ask_llm", 
