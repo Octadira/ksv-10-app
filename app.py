@@ -122,15 +122,15 @@ async def main(message: cl.Message):
             
             result_content += "\n" # Add a newline for spacing
 
-        # --- DEBUG: Temporarily disabled actions to confirm results display ---
-        # actions = [
-        #     cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
-        # ]
+        # Define the action button with the 'payload' parameter
+        actions = [
+            cl.Action(name="ask_llm", payload=term, label="✨ Caută și cu LLM")
+        ]
 
-        # Send one message with the results
+        # Send one message with both the results and the action button
         await cl.Message(
-            content=result_content.strip()
-            # actions=actions # --- DEBUG: Temporarily disabled
+            content=result_content.strip(),
+            actions=actions
         ).send()
 
     else:
@@ -141,12 +141,16 @@ async def main(message: cl.Message):
         msg.content += llm_response
         await msg.update()
 
-# --- DEBUG: Temporarily disable the action callback ---
-# @cl.action_callback("ask_llm")
-# async def on_action(action: cl.Action):
-#     """Function called when the user clicks the 'ask_llm' action button."""
-#     term = action.value 
-#     await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
-#     llm_response = await translate_with_llm(term)
-#     final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
-#     await cl.Message(content=final_response).send()
+@cl.action_callback("ask_llm")
+async def on_action(action: cl.Action):
+    """Function called when the user clicks the 'ask_llm' action button."""
+    # Read the term from the 'payload' attribute
+    term = action.payload 
+    
+    await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
+    
+    llm_response = await translate_with_llm(term)
+    
+    final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
+    
+    await cl.Message(content=final_response).send()
