@@ -109,7 +109,7 @@ async def main(message: cl.Message):
         llm_button_message = f"Termenul **'{term}'** nu a fost găsit. Doriți să încerc cu AI?"
         await cl.Message(content=llm_button_message, actions=[ask_llm_action]).send()
 
-async def query_llm(term: str, original_message: cl.Message, is_regenerate: bool = False):
+async def query_llm(term: str, msg_to_update: cl.Message, is_regenerate: bool = False):
     """Helper function to query the LLM and update the message."""
     try:
         response = completion(
@@ -125,20 +125,31 @@ async def query_llm(term: str, original_message: cl.Message, is_regenerate: bool
         if is_regenerate:
             prefix = "🔄 **Răspuns regenerat:**\n\n"
 
-        original_message.content = f"{prefix}{llm_response}"
-        await original_message.update()
+        msg_to_update.content = f"{prefix}{llm_response}"
+        # Add the regenerate button to the final response message
+        msg_to_update.actions = [
+            cl.Action(
+                name="regenerate_llm", 
+                payload={"term": term, "msg_id": msg_to_update.id}, # Pass msg_id
+                label="🔄 Mai încearcă o dată"
+            )
+        ]
+        await msg_to_update.update()
 
     except Exception as e:
-        original_message.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
-        await original_message.update()
+        msg_to_update.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
+        await msg_to_update.update()
 
 @cl.action_callback("ask_llm")
 async def ask_llm(action: cl.Action):
     term = action.payload.get("term")
-    await action.remove()
+    # Remove the "Cauta cu AI" button from the original message
+    original_message = cl.Message(content="", id=action.for_id, author=action.author)
+    original_message.actions = []
+    await original_message.update()
 
-    regenerate_action = cl.Action(name="regenerate_llm", payload={"term": term}, label="Mai încearcă o dată")
-    msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠", actions=[regenerate_action])
+    # Create a new message for the LLM response
+    msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠")
     await msg.send()
     
     await query_llm(term, msg)
@@ -146,7 +157,11 @@ async def ask_llm(action: cl.Action):
 @cl.action_callback("regenerate_llm")
 async def regenerate_llm(action: cl.Action):
     term = action.payload.get("term")
-    msg = cl.Message.get(action.for_id)
-    await msg.stream_token("Regenerez răspunsul... 🔄")
+    msg_id = action.payload.get("msg_id")
 
+    # Create a message object representing the one to update
+    msg = cl.Message(id=msg_id, author=action.author, content=f"Regenerez răspunsul pentru '{term}'... 🔄")
+    await msg.update()
+
+    # Query the LLM and update the same message
     await query_llm(term, msg, is_regenerate=True)
