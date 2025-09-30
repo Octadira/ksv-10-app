@@ -67,52 +67,27 @@ if "CHAINLIT_AUTH_SECRET" in os.environ:
         
         if not verify_password(password, user['password_hash']):
             return None # Invalid password
-
+        
         # In new versions of Chainlit, 'identifier' is a required field for cl.User.
         return cl.User(identifier=user['username'], role=user['role'])
 
 
 @cl.on_chat_start
 async def on_chat_start():
-    try:
-        with open("chainlit.md", "r", encoding="utf-8") as f:
-            await cl.Message(content=f.read()).send()
-    except FileNotFoundError:
-        await cl.Message(content="Bun venit la KSV-10!").send()
+    await cl.Message(content="Bun venit la KSV-10! Introduceți un termen pentru a începe.").send()
 
 @cl.on_message
 async def main(message: cl.Message):
-    msg_content = message.content.strip()
+    term = message.content.strip()
     
     # --- Command Handling ---
     if msg_content.startswith("/schimba_parola"):
-        parts = msg_content.split()
-        if len(parts) != 3:
-            await cl.Message(content="Comandă invalidă. Folosiți: /schimba_parola <parola_veche> <parola_noua>").send()
-            return
-
-        _, old_password, new_password = parts
-        user_data = cl.user_session.get("user")
-
-        if not user_data:
-            await cl.Message(content="Eroare: Nu am putut identifica utilizatorul curent.").send()
-            return
-
-        # Verify old password
-        if not verify_password(old_password, user_data['password_hash']):
-            await cl.Message(content="Parola veche este incorectă.").send()
-            return
-
-        # Change password
-        new_password_hash = get_password_hash(new_password)
-        if change_password_in_db(user_data['username'], new_password_hash):
-            await cl.Message(content="Parola a fost schimbată cu succes!").send()
-        else:
-            await cl.Message(content="A apărut o eroare la schimbarea parolei. Vă rugăm încercați mai târziu.").send()
+        # This is temporarily disabled due to the ChainlitContextException workaround.
+        # Awaiting a permanent fix.
+        await cl.Message(content="Funcționalitatea de schimbare a parolei este temporar dezactivată.").send()
         return
 
     # --- Dictionary Logic (if not a command) ---
-    term = msg_content
     if not term:
         await cl.Message(content="Vă rog să introduceți un termen.").send()
         return
@@ -124,30 +99,39 @@ async def main(message: cl.Message):
 
     search_lang_field = "lang_a" if lang == "en" else "lang_b"
     
+    # 1. Search in Meilisearch
     search_results = meili_index.search(term, {
-        'limit': 5,
         'attributesToSearchOn': [search_lang_field]
     })
 
+    # 2. Display Meilisearch results if found
     if search_results['hits']:
-        response = "**Rezultate din dicționar:**\n\n"
-        for i, hit in enumerate(search_results['hits']):
-            ro_term = hit.get('lang_b', 'N/A')
-            en_term = hit.get('lang_a', 'N/A')
-            explanation = hit.get('explanation', 'Fără explicație.')
-            response += f"**{i+1}. {en_term}** (EN) - **{ro_term}** (RO)\n*Explicație:* {explanation}\n---\n"
+        await cl.Message(content="**Din Baza de Cunoștințe:**").send()
         
-        await cl.Message(content=response).send()
+        results_str = ""
+        for hit in search_results['hits']:
+            # Assuming field names 'lang_a', 'lang_b', and 'sursa'
+            result_line = f"Rezultat: {hit.get('lang_a', '')} / {hit.get('lang_b', '')}"
+            source_line = f"Sursa: {hit.get('sursa', 'N/A')}" # ASSUMPTION: field name is 'sursa'
+            results_str += f"{result_line}\n{source_line}\n\n"
 
-    else:
-        actions = [
-            cl.Action(
-                name="ask_llm", 
-                payload={"term": term}, 
-                label="Întreabă AI-ul"
-            )
-        ]
-        await cl.Message(content=f"Termenul **'{term}'** nu a fost găsit în dicționar.", actions=actions).send()
+        if results_str:
+            await cl.Message(content=results_str).send()
+    
+    # 3. Always offer to search with LLM
+    llm_button_message = "Doriți o căutare avansată cu AI?"
+    if not search_results['hits']:
+        llm_button_message = f"Termenul **'{term}'** nu a fost găsit. Doriți să încerc cu AI?"
+
+    actions = [
+        cl.Action(
+            name="ask_llm", 
+            payload={"term": term}, 
+            label="Caută cu AI (LLM)"
+        )
+    ]
+    
+    await cl.Message(content=llm_button_message, actions=actions).send()
 
 @cl.action_callback("ask_llm")
 async def on_action(action: cl.Action):
