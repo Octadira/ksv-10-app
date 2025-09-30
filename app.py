@@ -144,7 +144,7 @@ async def query_llm(term: str, msg_to_update: cl.Message, is_regenerate: bool = 
 async def ask_llm(action: cl.Action):
     term = action.payload.get("term")
     # Remove the "Cauta cu AI" button from the original message
-    original_message = cl.Message(content="", id=action.forId, author=action.author)
+    original_message = cl.Message(content="", id=action.forId)
     original_message.actions = []
     await original_message.update()
 
@@ -160,7 +160,7 @@ async def regenerate_llm(action: cl.Action):
     msg_id = action.payload.get("msg_id")
 
     # Create a message object representing the one to update
-    msg = cl.Message(id=msg_id, author=action.author, content=f"Regenerez răspunsul pentru '{term}'... 🔄")
+    msg = cl.Message(id=msg_id, content=f"Regenerez răspunsul pentru '{term}'... 🔄")
     await msg.update()
 
     # Query the LLM and update the same message
