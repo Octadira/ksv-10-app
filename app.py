@@ -24,14 +24,14 @@ meili_index = meili_client.index(MEILI_INDEX_NAME)
 # --- LiteLLM (Gemini) Setup ---
 os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-pro")
-LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT", """
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT", '''
 You are a professional translator and linguist. Your task is to translate the given term.
 1.  First, detect the source language of the term (between Romanian and English).
 2.  Translate it into the target language (if the source is Romanian, translate to English; if the source is English, translate to Romanian).
 3.  Provide multiple translation variants if they exist, especially if the term has different meanings in different contexts.
 4.  For each variant, provide a short, clear description or an example sentence to illustrate its usage.
 5.  Format the output clearly using Markdown. Use bullet points for each variant.
-""")
+''')
 
 # --- Password & User Helper Functions ---
 def get_password_hash(password):
@@ -94,8 +94,6 @@ async def main(message: cl.Message):
         'attributesToSearchOn': [search_lang_field]
     })
 
-    ask_llm_action = cl.Action(name="ask_llm", payload={"term": term}, label="Caută cu AI (LLM)")
-
     if search_results['hits']:
         results_str = ""
         for hit in search_results['hits']:
@@ -104,13 +102,21 @@ async def main(message: cl.Message):
             results_str += f"{result_line}\n{source_line}\n\n"
         
         final_response = "**Din Baza de Cunoștințe:**\n\n" + results_str
+        
+        # Add the original content to the payload to preserve it later
+        ask_llm_action = cl.Action(
+            name="ask_llm", 
+            payload={"term": term, "original_content": final_response},
+            label="Caută cu AI (LLM)"
+        )
         await cl.Message(content=final_response, actions=[ask_llm_action]).send()
     else:
         llm_button_message = f"Termenul **'{term}'** nu a fost găsit. Doriți să încerc cu AI?"
+        ask_llm_action = cl.Action(name="ask_llm", payload={"term": term}, label="Caută cu AI (LLM)")
         await cl.Message(content=llm_button_message, actions=[ask_llm_action]).send()
 
-async def query_llm(term: str, is_regenerate: bool = False):
-    """Helper function to query the LLM and return the response content."""
+async def query_llm_and_update(term: str, msg: cl.Message, is_regenerate: bool = False):
+    """Queries the LLM, formats the response, and updates the message with the answer and a regenerate button."""
     try:
         response = completion(
             model=LLM_MODEL,
@@ -125,28 +131,39 @@ async def query_llm(term: str, is_regenerate: bool = False):
         if is_regenerate:
             prefix = "🔄 **Răspuns regenerat:**\n\n"
 
-        return f"{prefix}{llm_response}"
+        msg.content = f"{prefix}{llm_response}"
+        
+        # Set the actions list with a single, correctly configured regenerate button
+        msg.actions = [
+            cl.Action(
+                name="regenerate_llm", 
+                payload={"term": term, "msg_id": msg.id},
+                label="🔄 Mai încearcă o dată"
+            )
+        ]
+        await msg.update()
 
     except Exception as e:
-        return f"A apărut o eroare la contactarea serviciului AI: {e}"
+        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
+        await msg.update()
 
 @cl.action_callback("ask_llm")
 async def ask_llm(action: cl.Action):
-    # First, remove the action from the original message to prevent multiple clicks
-    original_msg = cl.Message(id=action.forId, content="") # Create a proxy for the original message
-    original_msg.actions = []
-    await original_msg.update()
+    # Preserve the original Meilisearch results by restoring the content
+    original_content = action.payload.get("original_content")
+    if original_content:
+        # Create a proxy for the original message to remove the button
+        original_msg = cl.Message(id=action.forId, content=original_content)
+        original_msg.actions = [] # Remove actions
+        await original_msg.update()
 
-    # Now, create a new message for the LLM query
+    # Create a new message for the LLM query
     term = action.payload.get("term")
     msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠")
     await msg.send()
     
-    # Get the response and update the message
-    response_content = await query_llm(term)
-    msg.content = response_content
-    msg.actions = [cl.Action(name="regenerate_llm", payload={"term": term, "msg_id": msg.id}, label="🔄 Mai încearcă o dată")]
-    await msg.update()
+    # This helper function will now handle the logic
+    await query_llm_and_update(term, msg)
 
 @cl.action_callback("regenerate_llm")
 async def regenerate_llm(action: cl.Action):
@@ -157,9 +174,5 @@ async def regenerate_llm(action: cl.Action):
     msg = cl.Message(id=msg_id, content=f"Regenerez răspunsul pentru '{term}'... 🔄")
     await msg.update()
 
-    # Get the new response and update the message
-    response_content = await query_llm(term, is_regenerate=True)
-    msg.content = response_content
-    # The actions list is already correct from the initial query, but we set it again to be safe
-    msg.actions = [cl.Action(name="regenerate_llm", payload={"term": term, "msg_id": msg.id}, label="🔄 Mai încearcă o dată")]
-    await msg.update()
+    # The helper function will handle the rest
+    await query_llm_and_update(term, msg, is_regenerate=True)
