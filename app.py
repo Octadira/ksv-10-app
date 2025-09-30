@@ -53,17 +53,26 @@ def search_in_meilisearch(term: str, lang: str) -> dict | None:
     if not MEILI_AVAILABLE:
         return None
     
-    # Map detected language to the actual field name in Meilisearch
     search_field = 'lang_a' if lang == 'en' else 'lang_b'
 
     try:
         search_params = {
-            'filter': [f'{search_field} = "{term.lower()}"'], # Use the correct field name
+            'attributesToSearchOn': [search_field], # Search ONLY in the correct language field
             'limit': 1
         }
-        results = meili_index.search('', search_params)
+        # Use the term as the main search query 'q'
+        results = meili_index.search(term, search_params)
+        
+        # Optional: Check if the result is a good enough match.
+        # For a dictionary, we want a fairly exact match.
         if results['hits']:
-            return results['hits'][0]
+            hit = results['hits'][0]
+            # Check if the search term is a whole word in the result.
+            # This avoids matching "art" inside "article".
+            # We split the result field by common delimiters.
+            words_in_hit = set(hit.get(search_field, '').lower().split(' /(),'))
+            if term.lower() in words_in_hit:
+                 return hit
         return None
     except Exception as e:
         print(f"Error searching Meilisearch: {e}")
