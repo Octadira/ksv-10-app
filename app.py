@@ -101,14 +101,16 @@ async def start():
 async def main(message: cl.Message):
     """Function called for every new message from the user."""
     term = message.content.strip()
-    
     lang = detect_language(term)
     
-    # Step 1: Search in Meilisearch
+    print(f"--- Căutare nouă pentru termenul: '{term}' ---") # LOG
+    
     meili_results = search_in_meilisearch(term, lang)
     
+    print(f"Meilisearch a returnat {len(meili_results)} rezultate.") # LOG
+
     if meili_results:
-        # Found results in Meilisearch
+        print("Blocul 'if meili_results' a fost executat.") # LOG
         result_content = "### Din Baza de Cunoștințe:\n---\n"
         
         for hit in meili_results:
@@ -125,25 +127,29 @@ async def main(message: cl.Message):
             
             result_content += "\n" # Add a newline for spacing
 
-        # Define the action button
+        print("--- Conținutul mesajului de trimis ---") # LOG
+        print(result_content) # LOG
+        print("------------------------------------") # LOG
+
         actions = [
             cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
         ]
 
-        # Send one message with both the results and the action button
         await cl.Message(
             content=result_content.strip(),
             actions=actions
         ).send()
+        print("Mesajul cu rezultate și acțiuni a fost trimis.") # LOG
 
     else:
-        # Step 2: Fallback to LLM
+        print("Blocul 'else' (fallback la LLM) a fost executat.") # LOG
         msg = cl.Message(content="")
         await msg.send()
         await msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
         llm_response = await translate_with_llm(term)
         msg.content += llm_response
         await msg.update()
+        print("Mesajul de la LLM a fost trimis.") # LOG
 
 @cl.action_callback("ask_llm")
 async def on_action(action: cl.Action):
