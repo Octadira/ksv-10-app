@@ -57,7 +57,7 @@ def search_in_meilisearch(term: str, lang: str) -> dict | None:
 
     try:
         search_params = {
-            'attributesToSearchOn': [search_field], # Search ONLY in the correct language field
+            'attributesToSearchOn': [search_field],
             'limit': 1
         }
         # Use the term as the main search query 'q'
