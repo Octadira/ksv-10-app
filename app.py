@@ -48,29 +48,24 @@ def detect_language(text: str) -> str:
     except LangDetectException:
         return 'en' # Default to English if detection fails
 
-def search_in_meilisearch(term: str, lang: str) -> dict | None:
-    """Searches for a term in the specified language field in Meilisearch."""
+def search_in_meilisearch(term: str, lang: str) -> list[dict]:
+    """Searches for a term and returns all matching documents."""
     if not MEILI_AVAILABLE:
-        return None
+        return [] # Return an empty list if not available
     
     search_field = 'lang_a' if lang == 'en' else 'lang_b'
 
     try:
         search_params = {
             'attributesToSearchOn': [search_field],
-            'limit': 1
+            'limit': 50 # Get up to 50 results
         }
         # Use the term as the main search query 'q'
         results = meili_index.search(term, search_params)
-        
-        if results['hits']:
-            # The buggy extra check was removed. Return the first hit.
-            return results['hits'][0]
-        
-        return None
+        return results.get('hits', []) # Return the list of hits, or empty list
     except Exception as e:
         print(f"Error searching Meilisearch: {e}")
-        return None
+        return [] # Return an empty list on error
 
 async def translate_with_llm(term: str):
     """Generates a translation using the LLM."""
@@ -114,25 +109,27 @@ async def main(message: cl.Message):
     lang = detect_language(term)
     
     # Step 1: Search in Meilisearch
-    meili_result = search_in_meilisearch(term, lang)
+    meili_results = search_in_meilisearch(term, lang)
     
-    if meili_result:
-        # Found in Meilisearch
-        # Use the correct field names: lang_b for Romanian, lang_a for English
-        ro_term = meili_result.get('lang_b', 'N/A')
-        en_term = meili_result.get('lang_a', 'N/A')
-        details = meili_result.get('explanation', 'Nicio explicație suplimentară.')
+    if meili_results:
+        # Found results in Meilisearch
+        final_content = "### Din Baza de Cunoștințe:\n---\n"
         
-        final_content = f"""
-### Rezultat găsit în Meilisearch
----
-**Română:** `{ro_term}`
+        for hit in meili_results:
+            en_term = hit.get('lang_a', '')
+            ro_term = hit.get('lang_b', '')
+            source = hit.get('source', '')
+            
+            rezultat_line = f"{en_term} / {ro_term}"
 
-**Engleză:** `{en_term}`
+            final_content += f"**Rezultat:** {rezultat_line}\n"
+            
+            if source:
+                final_content += f"**Sursa:** {source}\n"
+            
+            final_content += "\n" # Add a newline for spacing
 
-**Detalii:** `{details}`
-"""
-        await cl.Message(content=final_content).send()
+        await cl.Message(content=final_content.strip()).send()
 
     else:
         # Step 2: Fallback to LLM
