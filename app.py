@@ -51,20 +51,6 @@ def get_user(username):
         return dict(user)
     return None
 
-def change_password_in_db(username, new_password_hash):
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_password_hash, username))
-        conn.commit()
-        return True
-    except sqlite3.Error as e:
-        print(f"Database error on password change: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
 # --- Chainlit Authentication ---
 if "CHAINLIT_AUTH_SECRET" in os.environ:
     @cl.password_auth_callback
@@ -88,14 +74,10 @@ async def on_chat_start():
 async def main(message: cl.Message):
     msg_content = message.content.strip()
     
-    # --- Command Handling ---
     if msg_content.startswith("/schimba_parola"):
-        # This is temporarily disabled due to the ChainlitContextException workaround.
-        # Awaiting a permanent fix.
         await cl.Message(content="Funcționalitatea de schimbare a parolei este temporar dezactivată.").send()
         return
 
-    # --- Dictionary Logic (if not a command) ---
     term = msg_content
     if not term:
         await cl.Message(content="Vă rog să introduceți un termen.").send()
@@ -104,50 +86,31 @@ async def main(message: cl.Message):
     try:
         lang = detect(term)
     except:
-        lang = "en" # Default to english if detection fails
+        lang = "en"
 
     search_lang_field = "lang_a" if lang == "en" else "lang_b"
     
-    # 1. Search in Meilisearch
     search_results = meili_index.search(term, {
         'attributesToSearchOn': [search_lang_field]
     })
 
-    # 2. Display Meilisearch results if found
+    ask_llm_action = cl.Action(name="ask_llm", payload={"term": term}, label="Caută cu AI (LLM)")
+
     if search_results['hits']:
         results_str = ""
         for hit in search_results['hits']:
             result_line = f"Rezultat: {hit.get('lang_a', '')} / {hit.get('lang_b', '')}"
-            source_line = f"Sursa: {hit.get('source', 'N/A')}" # Correct field name
+            source_line = f"Sursa: {hit.get('source', 'N/A')}"
             results_str += f"{result_line}\n{source_line}\n\n"
-
-        if results_str:
-            final_response = "**Din Baza de Cunoștințe:**\n\n" + results_str
-            await cl.Message(content=final_response).send()
-    
-    # 3. Always offer to search with LLM
-    llm_button_message = "Doriți o căutare avansată cu AI?"
-    if not search_results['hits']:
+        
+        final_response = "**Din Baza de Cunoștințe:**\n\n" + results_str
+        await cl.Message(content=final_response, actions=[ask_llm_action]).send()
+    else:
         llm_button_message = f"Termenul **'{term}'** nu a fost găsit. Doriți să încerc cu AI?"
+        await cl.Message(content=llm_button_message, actions=[ask_llm_action]).send()
 
-    actions = [
-        cl.Action(
-            name="ask_llm", 
-            payload={"term": term}, 
-            label="Caută cu AI (LLM)"
-        )
-    ]
-    
-    await cl.Message(content=llm_button_message, actions=actions).send()
-
-@cl.action_callback("ask_llm")
-async def on_action(action: cl.Action):
-    term = action.payload.get("term")
-    await action.remove()
-
-    msg = cl.Message(content="Apelez la AI... 🧠")
-    await msg.send()
-    
+async def query_llm(term: str, original_message: cl.Message, is_regenerate: bool = False):
+    """Helper function to query the LLM and update the message."""
     try:
         response = completion(
             model=LLM_MODEL,
@@ -157,8 +120,33 @@ async def on_action(action: cl.Action):
             ]
         )
         llm_response = response.choices[0].message.content
-        msg.content = f"**Rezultat de la AI pentru '{term}':**\n\n{llm_response}"
-        await msg.update()
+        
+        prefix = "**Rezultat de la AI:**\n\n" 
+        if is_regenerate:
+            prefix = "🔄 **Răspuns regenerat:**\n\n"
+
+        original_message.content = f"{prefix}{llm_response}"
+        await original_message.update()
+
     except Exception as e:
-        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
-        await msg.update()
+        original_message.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
+        await original_message.update()
+
+@cl.action_callback("ask_llm")
+async def ask_llm(action: cl.Action):
+    term = action.payload.get("term")
+    await action.remove()
+
+    regenerate_action = cl.Action(name="regenerate_llm", payload={"term": term}, label="Mai încearcă o dată")
+    msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠", actions=[regenerate_action])
+    await msg.send()
+    
+    await query_llm(term, msg)
+
+@cl.action_callback("regenerate_llm")
+async def regenerate_llm(action: cl.Action):
+    term = action.payload.get("term")
+    msg = cl.Message.get(action.for_id)
+    await msg.stream_token("Regenerez răspunsul... 🔄")
+
+    await query_llm(term, msg, is_regenerate=True)
