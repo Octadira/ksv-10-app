@@ -24,6 +24,14 @@ meili_index = meili_client.index(MEILI_INDEX_NAME)
 # --- LiteLLM (Gemini) Setup ---
 os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-pro")
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT", """
+You are a professional translator and linguist. Your task is to translate the given term.
+1.  First, detect the source language of the term (between Romanian and English).
+2.  Translate it into the target language (if the source is Romanian, translate to English; if the source is English, translate to Romanian).
+3.  Provide multiple translation variants if they exist, especially if the term has different meanings in different contexts.
+4.  For each variant, provide a short, clear description or an example sentence to illustrate its usage.
+5.  Format the output clearly using Markdown. Use bullet points for each variant.
+""")
 
 # --- Password & User Helper Functions ---
 def get_password_hash(password):
@@ -113,7 +121,7 @@ async def main(message: cl.Message):
         for hit in search_results['hits']:
             # Assuming field names 'lang_a', 'lang_b', and 'sursa'
             result_line = f"Rezultat: {hit.get('lang_a', '')} / {hit.get('lang_b', '')}"
-            source_line = f"Sursa: {hit.get('sursa', 'N/A')}" # ASSUMPTION: field name is 'sursa'
+            source_line = f"Sursa: {hit.get('sursa', 'N/A')}" # Confirmed by user
             results_str += f"{result_line}\n{source_line}\n\n"
 
         if results_str:
@@ -141,17 +149,13 @@ async def on_action(action: cl.Action):
 
     msg = cl.Message(content="Apelez la AI... 🧠")
     await msg.send()
-
-    system_prompt = ("You are a helpful bilingual dictionary assistant. Your goal is to provide a concise and accurate translation and a brief explanation for the given term. "
-                     "The user will provide a term in either Romanian or English. You must respond with the translation in the other language and a short explanation. "
-                     "Format the response clearly in Markdown, starting with the translation and then the explanation.")
     
     try:
         response = completion(
             model=LLM_MODEL,
             messages=[
-                {"content": system_prompt, "role": "system"},
-                {"content": f"Translate and explain the term: '{term}'", "role": "user"}
+                {"content": LLM_SYSTEM_PROMPT, "role": "system"},
+                {"content": term, "role": "user"}
             ]
         )
         llm_response = response.choices[0].message.content
