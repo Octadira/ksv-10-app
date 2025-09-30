@@ -131,12 +131,33 @@ async def main(message: cl.Message):
 
         await cl.Message(content=final_content.strip()).send()
 
+        # Ask the user if they want to search with LLM as well
+        actions = [
+            cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
+        ]
+        await cl.Message(content="Doriți o alternativă de la modelul lingvistic?", actions=actions).send()
+
     else:
         # Step 2: Fallback to LLM
         await thinking_msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
         llm_response = await translate_with_llm(term)
         await cl.Message(content=llm_response).send()
 
-    # The thinking indicator message can be removed if desired,
-    # or updated. Here we just leave it.
+    # The initial thinking message is not needed anymore
     await thinking_msg.remove()
+
+@cl.action_callback("ask_llm")
+async def on_action(action: cl.Action):
+    """Function called when the user clicks the 'ask_llm' action button."""
+    term = action.value # The term to search is passed in the action's value
+    
+    # Let the user know the action is being processed
+    await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
+    
+    # Call the LLM
+    llm_response = await translate_with_llm(term)
+    
+    # Prepend the source to the response
+    final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
+    
+    await cl.Message(content=final_response).send()
