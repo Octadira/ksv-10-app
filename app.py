@@ -115,17 +115,15 @@ async def main(message: cl.Message):
 
     # 2. Display Meilisearch results if found
     if search_results['hits']:
-        await cl.Message(content="**Din Baza de Cunoștințe:**").send()
-        
         results_str = ""
         for hit in search_results['hits']:
-            # Assuming field names 'lang_a', 'lang_b', and 'sursa'
             result_line = f"Rezultat: {hit.get('lang_a', '')} / {hit.get('lang_b', '')}"
-            source_line = f"Sursa: {hit.get('sursa', 'N/A')}" # Confirmed by user
+            source_line = f"Sursa: {hit.get('source', 'N/A')}" # Correct field name
             results_str += f"{result_line}\n{source_line}\n\n"
 
         if results_str:
-            await cl.Message(content=results_str).send()
+            final_response = "**Din Baza de Cunoștințe:**\n\n" + results_str
+            await cl.Message(content=final_response).send()
     
     # 3. Always offer to search with LLM
     llm_button_message = "Doriți o căutare avansată cu AI?"
