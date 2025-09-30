@@ -125,11 +125,11 @@ async def ask_llm(action: cl.Action):
         original_msg.actions = [] # Remove actions
         await original_msg.update()
 
-    # Create a new message for the LLM query
     term = action.payload.get("term")
-    msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠")
-    await msg.send()
-    
+    # Send a "thinking" message
+    await cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠").send()
+
+    # Get the response from the LLM and send it in a new, final message
     try:
         response = completion(
             model=LLM_MODEL,
@@ -139,9 +139,10 @@ async def ask_llm(action: cl.Action):
             ]
         )
         llm_response = response.choices[0].message.content
-        msg.content = f"**Rezultat de la AI:**\n\n{llm_response}"
-        await msg.update()
+        final_content = f"**Rezultat de la AI:**\n\n{llm_response}"
+        
+        # Send the final answer in a NEW message to ensure all UI elements are present
+        await cl.Message(content=final_content).send()
 
     except Exception as e:
-        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
-        await msg.update()
+        await cl.Message(content=f"A apărut o eroare la contactarea serviciului AI: {e}").send()
