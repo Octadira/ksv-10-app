@@ -115,38 +115,6 @@ async def main(message: cl.Message):
         ask_llm_action = cl.Action(name="ask_llm", payload={"term": term}, label="Caută cu AI (LLM)")
         await cl.Message(content=llm_button_message, actions=[ask_llm_action]).send()
 
-async def query_llm_and_update(term: str, msg: cl.Message, is_regenerate: bool = False):
-    """Queries the LLM, formats the response, and updates the message with the answer and a regenerate button."""
-    try:
-        response = completion(
-            model=LLM_MODEL,
-            messages=[
-                {"content": LLM_SYSTEM_PROMPT, "role": "system"},
-                {"content": term, "role": "user"}
-            ]
-        )
-        llm_response = response.choices[0].message.content
-        
-        prefix = "**Rezultat de la AI:**\n\n"
-        if is_regenerate:
-            prefix = "🔄 **Răspuns regenerat:**\n\n"
-
-        msg.content = f"{prefix}{llm_response}"
-        
-        # Set the actions list with a single, correctly configured regenerate button
-        msg.actions = [
-            cl.Action(
-                name="regenerate_llm", 
-                payload={"term": term, "msg_id": msg.id},
-                label="🔄 Mai încearcă o dată"
-            )
-        ]
-        await msg.update()
-
-    except Exception as e:
-        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
-        await msg.update()
-
 @cl.action_callback("ask_llm")
 async def ask_llm(action: cl.Action):
     # Preserve the original Meilisearch results by restoring the content
@@ -162,17 +130,18 @@ async def ask_llm(action: cl.Action):
     msg = cl.Message(content=f"Apelez la AI pentru '{term}'... 🧠")
     await msg.send()
     
-    # This helper function will now handle the logic
-    await query_llm_and_update(term, msg)
+    try:
+        response = completion(
+            model=LLM_MODEL,
+            messages=[
+                {"content": LLM_SYSTEM_PROMPT, "role": "system"},
+                {"content": term, "role": "user"}
+            ]
+        )
+        llm_response = response.choices[0].message.content
+        msg.content = f"**Rezultat de la AI:**\n\n{llm_response}"
+        await msg.update()
 
-@cl.action_callback("regenerate_llm")
-async def regenerate_llm(action: cl.Action):
-    term = action.payload.get("term")
-    msg_id = action.payload.get("msg_id")
-
-    # Create a proxy for the message to update
-    msg = cl.Message(id=msg_id, content=f"Regenerez răspunsul pentru '{term}'... 🔄")
-    await msg.update()
-
-    # The helper function will handle the rest
-    await query_llm_and_update(term, msg, is_regenerate=True)
+    except Exception as e:
+        msg.content = f"A apărut o eroare la contactarea serviciului AI: {e}"
+        await msg.update()
