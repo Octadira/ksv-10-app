@@ -103,14 +103,9 @@ async def main(message: cl.Message):
     term = message.content.strip()
     lang = detect_language(term)
     
-    print(f"--- Căutare nouă pentru termenul: '{term}' ---") # LOG
-    
     meili_results = search_in_meilisearch(term, lang)
-    
-    print(f"Meilisearch a returnat {len(meili_results)} rezultate.") # LOG
 
     if meili_results:
-        print("Blocul 'if meili_results' a fost executat.") # LOG
         result_content = "### Din Baza de Cunoștințe:\n---\n"
         
         for hit in meili_results:
@@ -127,42 +122,31 @@ async def main(message: cl.Message):
             
             result_content += "\n" # Add a newline for spacing
 
-        print("--- Conținutul mesajului de trimis ---") # LOG
-        print(result_content) # LOG
-        print("------------------------------------") # LOG
+        # --- DEBUG: Temporarily disabled actions to confirm results display ---
+        # actions = [
+        #     cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
+        # ]
 
-        actions = [
-            cl.Action(name="ask_llm", value=term, label="✨ Caută și cu LLM")
-        ]
-
+        # Send one message with the results
         await cl.Message(
-            content=result_content.strip(),
-            actions=actions
+            content=result_content.strip()
+            # actions=actions # --- DEBUG: Temporarily disabled
         ).send()
-        print("Mesajul cu rezultate și acțiuni a fost trimis.") # LOG
 
     else:
-        print("Blocul 'else' (fallback la LLM) a fost executat.") # LOG
         msg = cl.Message(content="")
         await msg.send()
         await msg.stream_token("**Sursă: LLM (Gemini)**\n\n")
         llm_response = await translate_with_llm(term)
         msg.content += llm_response
         await msg.update()
-        print("Mesajul de la LLM a fost trimis.") # LOG
 
-@cl.action_callback("ask_llm")
-async def on_action(action: cl.Action):
-    """Function called when the user clicks the 'ask_llm' action button."""
-    term = action.value # The term to search is passed in the action's value
-    
-    # Let the user know the action is being processed
-    await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
-    
-    # Call the LLM
-    llm_response = await translate_with_llm(term)
-    
-    # Prepend the source to the response
-    final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
-    
-    await cl.Message(content=final_response).send()
+# --- DEBUG: Temporarily disable the action callback ---
+# @cl.action_callback("ask_llm")
+# async def on_action(action: cl.Action):
+#     """Function called when the user clicks the 'ask_llm' action button."""
+#     term = action.value 
+#     await cl.Message(content=f'Se caută "{term}" cu LLM-ul...').send()
+#     llm_response = await translate_with_llm(term)
+#     final_response = f"### Sursă: LLM (Gemini)\n---\n{llm_response}"
+#     await cl.Message(content=final_response).send()
