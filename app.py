@@ -63,16 +63,10 @@ def search_in_meilisearch(term: str, lang: str) -> dict | None:
         # Use the term as the main search query 'q'
         results = meili_index.search(term, search_params)
         
-        # Optional: Check if the result is a good enough match.
-        # For a dictionary, we want a fairly exact match.
         if results['hits']:
-            hit = results['hits'][0]
-            # Check if the search term is a whole word in the result.
-            # This avoids matching "art" inside "article".
-            # We split the result field by common delimiters.
-            words_in_hit = set(hit.get(search_field, '').lower().split(' /(),'))
-            if term.lower() in words_in_hit:
-                 return hit
+            # The buggy extra check was removed. Return the first hit.
+            return results['hits'][0]
+        
         return None
     except Exception as e:
         print(f"Error searching Meilisearch: {e}")
