@@ -61,13 +61,25 @@ def change_password_in_db(username, new_password_hash):
 if "CHAINLIT_AUTH_SECRET" in os.environ:
     @cl.password_auth_callback
     def auth_callback(username, password):
+        print("--- DEBUG: auth_callback initiated ---")
+        print(f"--- DEBUG: Received username: {username}")
         user = get_user(username)
+        
         if not user:
+            print("--- DEBUG: User not found in database. ---")
             return None  # User not found
         
-        if not verify_password(password, user['password_hash']):
+        print(f"--- DEBUG: User found in DB: {user}")
+        print(f"--- DEBUG: Stored hash: {user['password_hash']}")
+        
+        is_verified = verify_password(password, user['password_hash'])
+        print(f"--- DEBUG: Password verification result: {is_verified}")
+
+        if not is_verified:
+            print("--- DEBUG: Password verification FAILED. ---")
             return None # Invalid password
 
+        print("--- DEBUG: Password verification SUCCEEDED. ---")
         # Store user object in session
         cl.user_session.set("user", user)
         return cl.User(username=user['username'], role=user['role'])
