@@ -1,10 +1,14 @@
-# Bun venit la KSV-10!
+# Bun venit la KSV-10! 🚀
 
-Acesta este un dicționar hibrid Român-Englez, conceput pentru a vă oferi traduceri rapide și contextuale.
+Sunt dicționarul tău hibrid 🇷🇴 Român - 🇬🇧 Englez, gata să te ajute cu traduceri rapide și contextuale.
 
-**Cum funcționează?**
+---
 
-1.  **Căutare Instantanee:** Aplicația caută mai întâi termenul într-o bază de date locală ultra-rapidă (Meilisearch).
-2.  **Asistență AI:** Dacă termenul nu este găsit, un model lingvistic avansat (Google Gemini) este consultat pentru a genera o traducere relevantă.
+### ✨ Cum funcționez?
 
-Introduceți un cuvânt sau o expresie pentru a începe!
+1.  **Căutare Instantanee ⚡️:** Caut cu viteza luminii termenul în baza de date locală (Meilisearch).
+2.  **Asistență AI 🧠:** Dacă nu găsesc nimic, apelez la prietenul meu mai mare, Google Gemini, pentru o traducere inteligentă.
+
+---
+
+✍️ Introduceți un cuvânt sau o expresie pentru a începe!
