@@ -133,11 +133,8 @@ async def main(message: cl.Message):
     except:
         lang = "en"
 
-    search_lang_field = "lang_a" if lang == "en" else "lang_b"
-    
-    search_results = meili_index.search(term, {
-        'attributesToSearchOn': [search_lang_field]
-    })
+    # Căutăm termenul în toate atributele căutabile definite în Meilisearch ('lang_a', 'lang_b')
+    search_results = meili_index.search(term)
 
     if search_results['hits']:
         results_str = ""
