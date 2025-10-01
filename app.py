@@ -128,13 +128,20 @@ async def main(message: cl.Message):
         await cl.Message(content="Vă rog să introduceți un termen.").send()
         return
 
+    print("\n--- MEILISEARCH DEBUG START ---")
+    print(f"Attempting to search for term: '{term}'")
+    
     try:
-        lang = detect(term)
-    except:
-        lang = "en"
+        search_results = meili_index.search(term)
+        print("Search call was successful.")
+        print(f"Raw response object from Meilisearch client:\n{search_results}")
+        print(f"Number of hits found: {len(search_results.get('hits', []))}")
 
-    # Căutăm termenul în toate atributele căutabile definite în Meilisearch ('lang_a', 'lang_b')
-    search_results = meili_index.search(term)
+    except Exception as e:
+        print(f"AN ERROR OCCURRED DURING SEARCH: {e}")
+        search_results = {'hits': []} # Prevent crash
+    
+    print("--- MEILISEARCH DEBUG END ---\n")
 
     if search_results['hits']:
         results_str = ""
